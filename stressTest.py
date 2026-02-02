@@ -4,6 +4,7 @@ from pathlib import Path
 from itertools import combinations_with_replacement
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from collections import Counter
 
 def main(vehlist,pers5,pers6):
     veh2 = vehlist.copy()
@@ -53,46 +54,64 @@ def main(vehlist,pers5,pers6):
     while progress:
         combos,listing, progress = cleanup(combos, sorted_spaces, listing)
     combos = person_calc(combos.copy(), sorted_sizes.copy())
-    return combos, listing
+    return combos, listing, off
 
 def determineflags(combos, init):
-    flags = ['N', 'N', 'N', 'N', 'N']
-
+    flags = [False, False, False, False, False, False, False]
     if not combos:
-        flags[4] = 'Y'
         return flags
 
-    count4, count5, count6 = 0,0,0
-    total4, total5, total6  = 0,0,0
-    for x in range(len(combos)):
-        total = 5*init[x][0]+6*init[x][1]
-        length = len(combos[x])
-        if length==4:
-            count4+=1
-            if count4==1:
-                total4 = total
-            if count4==2 and total4!=total:
-                flags[0] = 'Y'
-                continue
-        if length==5:
-            count5+=1
-            if count5==1:
-                total5 = total
-            if count5==2 and total5!=total:
-                flags[1] = 'Y'
-                continue
-        if length==6:
-            count6+=1
-            if count6==1:
-                total6 = total
-            if count6==2 and total6!=total:
-                flags[2] = 'Y'
-                continue
-        if length==5 and sum(init[x]) not in {1,4}:
-            flags[3] = 'Y'
+    have_any4 = False
+    seen3 = []
+    have_two3_diff = False
+
+    have_bad4 = False
+    have_bad5 = False
+
+    for x, c in enumerate(combos):
+        L = len(c)
+        if L not in (2, 3, 4, 5, 6):
+            continue
+
+        total = 5 * init[x][0] + 6 * init[x][1]
+
+        if L == 4:
+            have_any4 = True
+            flags[2] = True
+
+            if total < 15 and total not in {5, 6}:
+                have_bad4 = True
+
+        elif L == 2:
+            flags[0] = True
+
+        elif L == 3:
+            flags[1] = True
+            if any(abs(total - t) >= 5 for t in seen3):
+                have_two3_diff = True
+            seen3.append(total)
+
+        elif L == 5:
+            flags[3] = True
+
+            if total < 20 and total not in {5, 6}:
+                have_bad5 = True
+
+        elif L == 6:
+            flags[4] = True
+
+        if have_any4 and have_two3_diff:
+            flags[5] = True
+
+        if have_bad4 and have_bad5:
+            flags[6] = True
+
+        if all(flags):
+            break
+
     return flags
 
-def writetocsv(filepath, vehicles, pers5, pers6, combos, flags):
+def writetocsv(filepath, vehicles, pers5, pers6, combos, validCheck, flags):
     path = Path(filepath)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -108,11 +127,14 @@ def writetocsv(filepath, vehicles, pers5, pers6, combos, flags):
                 "sum_vehicles",
                 "pers5",
                 "pers6",
-                "flags_unequal_4s",
-                "flags_unequal_5s",
-                "flags_unequal_6s",
-                "flags_weird_5",
-                "failure",
+                "ValidCombos",
+                "2s",
+                "3s",
+                "4s",
+                "5s",
+                "6s",
+                "4+3+3 Flag",
+                "5+4 Flag",
                 "combos"
             ])
 
@@ -121,62 +143,79 @@ def writetocsv(filepath, vehicles, pers5, pers6, combos, flags):
             sum(vehicles),
             pers5,
             pers6,
+            validCheck,
             flags[0],
             flags[1],
             flags[2],
             flags[3],
             flags[4],
+            flags[5],
+            flags[6],
             combos_str
         ])
 
 def multisets(n,upper):
     return [list(c) for c in combinations_with_replacement(range(1, upper), n)]
 
+def multiset_subset(combos, vehicles):
+    used = Counter(x for combo in combos for x in combo)
+    avail = Counter(vehicles)
+    return all(used[v] <= avail[v] for v in used)
+
 if __name__ == '__main__':
-    lower=9
+    lower=26
     upper=31
-    priority = 6
-    vers = 1
+    vers = [0,1]
+    priorities = [6,5]
     for size in range(lower,upper):
-        x = [0, 5, 4, 3, 2, 1]
-        if priority==1:
-            sets = multisets(size, 6)
-        elif priority==2:
-            sets = multisets(size, 5)
-        else:
-            sets = multisets(size, priority)
+        for ver in vers:
+            for pr in priorities:
+                vars = [0, 5, 4, 3, 2, 1]
+                sets = multisets(size, pr)
 
-        timestamp = datetime.now().strftime("%M%S")
-        filepath = Path.home() / "Desktop" / f"trial{priority}s-{vers}" / f"StressTest_{size}_{timestamp}.csv"
+                timestamp = datetime.now().strftime("%M%S")
+                filepath = Path.home() / "Desktop" / f"trial{pr}s-{ver}" / f"{size}_{timestamp}.csv"
 
-        skip_sums = {1, 2, 3, 4, 7, 8, 9, 13, 14, 19}
+                skip_sums = {1, 2, 3, 4, 7, 8, 9, 13, 14, 19}
 
-        for vehicles in sets:
-            s = sum(vehicles)
-            if s in skip_sums and priority!=1 and priority!=2:
-                continue
-            if priority==6:
-                pers5 = x[s%6]
-                remainder = s - 5*pers5
-                pers6 = remainder // 6
-            elif priority==5:
-                pers6 = s%5
-                remainder = s - 6*pers6
-                pers5 = remainder // 5
-            elif priority==1:
-                pers6 = s//6
-                pers5 = 0
-            elif priority==2:
-                pers5 = s//5
-                pers6 = 0
-            else:
-                break
-            combos, init = main(vehicles, pers5, pers6)
+                for vehicles in sets:
+                    s = sum(vehicles)
+                    if s in skip_sums and ver!=1:
+                        continue
+                    if pr==6:
+                        if ver==0:
+                            pers5 = vars[s%6]
+                            remainder = s - 5*pers5
+                            pers6 = remainder // 6
+                        else:
+                            pers6 = s//6
+                            pers5 = 0
+                    elif pr==5:
+                        if ver==0:
+                            pers6 = s%5
+                            remainder = s - 6*pers6
+                            pers5 = remainder // 5
+                        else:
+                            pers5 = s//5
+                            pers6 = 0
+                    else:
+                        break
+                    combos, init, off = main(vehicles, pers5, pers6)
+                    if combos:
+                        combos = [sorted(inner) for inner in combos]
+                    used_space = sum(sum(c) for c in combos) if combos else 0
+                    validCheck = (
+                        combos is not None and init is not None and off is not None
+                        and len(init) == len(combos)
+                        and multiset_subset(combos, vehicles)
+                        and s >= used_space >= 5*off[0] + 6*off[1]
+                        and sum(i[0] for i in init) == off[0]
+                        and sum(i[1] for i in init) == off[1]
+                    )
+                    flags = determineflags(combos, init)
+                    writetocsv(filepath, vehicles, pers5, pers6, combos, validCheck, flags)
 
-            flags = determineflags(combos, init)
-            writetocsv(filepath, vehicles, pers5, pers6, combos, flags)
+                timestamp = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
-        timestamp = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
-
-        print(f"[{timestamp}] Wrote results for {size} to: {filepath}")
+                print(f"[{timestamp}] Wrote results for {size} to: {filepath}")
     print("All done!")

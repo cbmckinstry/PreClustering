@@ -686,4 +686,9 @@ def cleanup(combos, sorted_spaces, listing):
     size2 = [[x+1 for x in combo]for combo in size2]
     other = [[x+1 for x in combo]for combo in other]
 
+    '''
+    In theory, 5+3+3 is also possible, for example 5,4,3  2,2,2  5,5,5,3 or 4,4,4  3,2,1  3,1,1,1. I have yet 
+    to see it in practice or stress testing. It can be broken into 2,2,3,3.
+    '''
+
     return size5+size4+size3+size2+other, init5+init4+init3+init2+init_other, progressFlag
