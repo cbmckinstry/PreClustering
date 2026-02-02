@@ -164,10 +164,10 @@ def multiset_subset(combos, vehicles):
 
 if __name__ == '__main__':
     lower=26
-    upper=31
+    upper=30
     vers = [0,1]
     priorities = [6,5]
-    for size in range(lower,upper):
+    for size in range(lower,upper+1):
         for ver in vers:
             for pr in priorities:
                 vars = [0, 5, 4, 3, 2, 1]
