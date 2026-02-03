@@ -163,7 +163,7 @@ def multiset_subset(combos, vehicles):
     return all(used[v] <= avail[v] for v in used)
 
 if __name__ == '__main__':
-    lower=26
+    lower=15
     upper=30
     vers = [0,1]
     priorities = [6,5]
@@ -174,7 +174,7 @@ if __name__ == '__main__':
                 sets = multisets(size, pr)
 
                 timestamp = datetime.now().strftime("%M%S")
-                filepath = Path.home() / "Desktop" / f"trial{pr}s-{ver}" / f"{size}_{timestamp}.csv"
+                filepath = Path.home() / "Desktop" / "Trials" / f"trial{pr}s_{ver}" / f"{size}_{pr}{ver}_{timestamp}.csv"
 
                 skip_sums = {1, 2, 3, 4, 7, 8, 9, 13, 14, 19}
 
