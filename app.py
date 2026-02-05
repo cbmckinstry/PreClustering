@@ -13,6 +13,7 @@ import redis
 import json
 import uuid
 from werkzeug.middleware.proxy_fix import ProxyFix
+from datetime import timedelta
 
 
 app = Flask(__name__)
@@ -36,6 +37,7 @@ app.config["SESSION_KEY_PREFIX"] = os.environ.get("SESSION_KEY_PREFIX", "session
 
 DEVICE_COOKIE_NAME = "device_id"
 DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 2
+LOG_RETENTION_DAYS = 365 * 2
 
 def get_device_id() -> str:
     did = request.cookies.get(DEVICE_COOKIE_NAME)
@@ -172,6 +174,38 @@ def log_get_all() -> list[dict]:
                 pass
         return out
     return list(DATA_LOG_FALLBACK)
+
+def purge_old_entries():
+    cutoff = datetime.now(ZoneInfo("America/Chicago")) - timedelta(days=LOG_RETENTION_DAYS)
+
+    def is_recent(e):
+        try:
+            ts = datetime.strptime(e.get("timestamp", ""), "%Y-%m-%d  %H:%M:%S")
+            ts = ts.replace(tzinfo=ZoneInfo("America/Chicago"))
+            return ts >= cutoff
+        except Exception:
+            return False  # drop malformed timestamps
+
+    if rdb:
+        raw = rdb.lrange(LOG_LIST_KEY, 0, -1)
+        kept = []
+        for s in raw:
+            try:
+                e = json.loads(s)
+                if is_recent(e):
+                    kept.append(s)
+            except Exception:
+                pass
+
+        pipe = rdb.pipeline()
+        pipe.delete(LOG_LIST_KEY)
+        if kept:
+            pipe.rpush(LOG_LIST_KEY, *kept)
+            pipe.ltrim(LOG_LIST_KEY, -MAX_LOG_ENTRIES, -1)
+        pipe.execute()
+    else:
+        global DATA_LOG_FALLBACK
+        DATA_LOG_FALLBACK = [e for e in DATA_LOG_FALLBACK if is_recent(e)]
 
 def _build_matrices_payload_lines(people: int, crews: int) -> list[str]:
     return [
@@ -683,6 +717,8 @@ def trainer_view():
     if not is_trainer_authed():
         session.pop("trainer_authed", None)
         return redirect(url_for("trainer_login"))
+
+    purge_old_entries()
 
     entries = log_get_all()
     entries = [e for e in entries if e.get("event") in {"input", "matrices"}]
