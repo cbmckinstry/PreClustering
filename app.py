@@ -115,6 +115,7 @@ else:
     app.config["SESSION_FILE_DIR"] = str(session_dir)
 Session(app)
 
+
 TRAINER_PASSWORD_VIEW = os.environ.get("TRAINER_PASSWORD_VIEW", "change-me")
 
 def is_trainer_authed() -> bool:
@@ -206,50 +207,31 @@ def purge_old_entries():
         global DATA_LOG_FALLBACK
         DATA_LOG_FALLBACK = [e for e in DATA_LOG_FALLBACK if is_recent(e)]
 
-
 def _build_matrices_payload_lines(people: int, crews: int) -> list[str]:
     return [
         f"  People: {people}",
         f"  Crews: {crews}",
     ]
+
 def _now_ts() -> str:
     return datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S")
-
-TRUSTED_PROXY_CIDRS = []
-_raw = os.environ.get("TRUSTED_PROXY_CIDRS", "").strip()
-if _raw:
-    TRUSTED_PROXY_CIDRS = [ipaddress.ip_network(x.strip()) for x in _raw.split(",") if x.strip()]
 
 def is_public_ip(ip: str) -> bool:
     try:
         a = ipaddress.ip_address(ip)
-        return a.is_global
-    except ValueError:
-        return False
-
-def is_trusted_proxy(ip: str) -> bool:
-    try:
-        a = ipaddress.ip_address(ip)
-        return any(a in net for net in TRUSTED_PROXY_CIDRS)
+        return not (a.is_private or a.is_loopback or a.is_reserved or a.is_multicast or a.is_link_local)
     except ValueError:
         return False
 
 def get_client_ip():
-    xff = request.headers.get("X-Forwarded-For", "") or ""
-    parts = [p.strip() for p in xff.split(",") if p.strip()]
-
-    ra = (request.remote_addr or "").strip()
-    if ra:
-        parts.append(ra)
-    for ip in reversed(parts):
-        if is_trusted_proxy(ip):
-            continue
-        if is_public_ip(ip):
-            return ip, xff
-
-    if parts:
-        return parts[0], xff
-    return ra, xff
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        for ip in parts:
+            if is_public_ip(ip):
+                return ip, xff
+        return (parts[0] if parts else (request.remote_addr or "")), xff
+    return request.remote_addr or "", ""
 
 def purge_hidden_ips_from_redis():
     if not rdb:
@@ -297,6 +279,7 @@ def print_event(event: str, user_ip: str, device_id: str, geo, xff_chain: str, r
 
     if is_hidden_ip(user_ip):
         return
+
     print(f"\n{event.upper()} @ {_now_ts()}", flush=True)
     print(f"  Device: {device_id}", flush=True)
     print(f"  IP: {user_ip}", flush=True)
@@ -317,6 +300,7 @@ def print_event(event: str, user_ip: str, device_id: str, geo, xff_chain: str, r
 def _safe_return_path(path: str | None) -> str:
     allowed = {"/", "/test"}
     return path if path in allowed else "/"
+
 
 @app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
