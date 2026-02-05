@@ -21,18 +21,18 @@
 <p><a href="{{ url_for('index') }}">Back to main page</a></p>
 
 {% if grouped_entries %}
-{% for ip, group in grouped_entries.items() %}
+{% for user_num, group in grouped_entries.items() %}
 <div class="ip-block">
 
     {% set g = group[0].geo if group[0].geo is defined else None %}
     <h2 class="ip-heading">
-        {{ ip }}
+        {% if user_num == 0 %}Unknown Crew Manager{% else %}Crew Manager {{ user_num }}{% endif %}
         {% if g %}
         <span class="ip-meta">
-            ({{ g.city or 'Unknown city' }},
-             {{ g.region or 'Unknown region' }},
-             {{ g.country or 'Unknown country' }})
-        </span>
+                ({{ g.city or 'Unknown city' }},
+                 {{ g.region or 'Unknown region' }},
+                 {{ g.country or 'Unknown country' }})
+            </span>
         {% else %}
         <span class="ip-meta">(Location unknown)</span>
         {% endif %}
@@ -79,6 +79,7 @@
 
         </tbody>
     </table>
+
 </div>
 {% endfor %}
 {% else %}

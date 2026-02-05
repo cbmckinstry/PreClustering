@@ -11,11 +11,10 @@ import requests
 import ipaddress
 import redis
 import json
+import uuid
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-# ------------------------------
-# App
-# ------------------------------
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -35,6 +34,53 @@ app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_USE_SIGNER"] = True
 app.config["SESSION_KEY_PREFIX"] = os.environ.get("SESSION_KEY_PREFIX", "session:clustering:")
 
+DEVICE_COOKIE_NAME = "device_id"
+DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 2
+
+def get_device_id() -> str:
+    did = request.cookies.get(DEVICE_COOKIE_NAME)
+    if did and 16 <= len(did) <= 80:
+        return did
+
+    return uuid.uuid4().hex
+
+def build_user_map(entries: list[dict]) -> dict[str, int]:
+    entries_oldest_first = sorted(entries, key=lambda e: e.get("timestamp", ""))
+
+    first_seen: dict[str, str] = {}
+    for e in entries_oldest_first:
+        did = e.get("device_id")
+        if not did:
+            continue
+        first_seen.setdefault(did, e.get("timestamp", ""))
+
+    ordered = sorted(first_seen.items(), key=lambda x: (x[1], x[0]))
+
+    return {did: i for i, (did, _) in enumerate(ordered, start=1)}
+
+def build_grouped_entries(entries: list[dict]) -> dict[int, list[dict]]:
+    user_map = build_user_map(entries)
+
+    grouped: dict[int, list[dict]] = {}
+    for e in entries:
+        did = e.get("device_id") or ""
+        user_num = user_map.get(did, 0)
+        grouped.setdefault(user_num, []).append(e)
+
+    for user_num in grouped:
+        grouped[user_num].sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+
+    def newest_ts(user_num: int) -> str:
+        return grouped[user_num][0].get("timestamp", "") if grouped[user_num] else ""
+
+    ordered_user_nums = sorted(grouped.keys(), key=lambda u: newest_ts(u), reverse=True)
+
+    ordered_user_nums = sorted(
+        ordered_user_nums,
+        key=lambda u: (u == 0, ),
+    )
+    return {u: grouped[u] for u in ordered_user_nums}
+
 if redis_url:
     app.config["SESSION_TYPE"] = "redis"
     app.config["SESSION_REDIS"] = redis.Redis.from_url(redis_url)
@@ -45,17 +91,12 @@ else:
     app.config["SESSION_FILE_DIR"] = str(session_dir)
 Session(app)
 
-# ------------------------------
-# Trainer auth
-# ------------------------------
+
 TRAINER_PASSWORD_VIEW = os.environ.get("TRAINER_PASSWORD_VIEW", "change-me")
 
 def is_trainer_authed() -> bool:
     return bool(session.get("trainer_authed", False))
 
-# ------------------------------
-# Hidden IPs
-# ------------------------------
 HIDDEN_IPS_RAW = os.environ.get("HIDDEN_IPS", "").strip()
 HIDDEN_IPS = {x.strip() for x in HIDDEN_IPS_RAW.split(",") if x.strip()}
 
@@ -107,15 +148,6 @@ def log_get_all() -> list[dict]:
                 pass
         return out
     return list(DATA_LOG_FALLBACK)
-
-def build_grouped_entries(entries: list[dict]) -> dict[str, list[dict]]:
-    # newest-first display
-    entries = list(reversed(entries))
-    grouped: dict[str, list[dict]] = {}
-    for e in entries:
-        ip = e.get("ip", "Unknown IP")
-        grouped.setdefault(ip, []).append(e)
-    return grouped
 
 def _build_matrices_payload_lines(people: int, crews: int) -> list[str]:
     return [
@@ -196,13 +228,14 @@ def _format_loc(geo):
     country = geo.get("country") or "Unknown country"
     return f"{city}, {region}, {country}"
 
-def print_event(event: str, user_ip: str, geo, xff_chain: str, remote_addr: str, payload_lines: list[str] | None):
+def print_event(event: str, user_ip: str, device_id: str, geo, xff_chain: str, remote_addr: str, payload_lines: list[str] | None):
 
     if is_hidden_ip(user_ip):
         return
 
     print(f"\n{event.upper()} @ {_now_ts()}", flush=True)
     print(f"  IP: {user_ip}", flush=True)
+    print(f"  Device: {device_id}", flush=True)
     print(f"  Location: {_format_loc(geo)}", flush=True)
 
     if xff_chain:
@@ -229,6 +262,7 @@ def index():
     user_ip, xff_chain = get_client_ip()
     is_bot = is_request_bot(request.headers.get("User-Agent", ""))
     geo = lookup_city(user_ip)
+    device_id = get_device_id()
 
     if request.method == "GET":
         session["return_after_matrices"] = "/"
@@ -277,6 +311,7 @@ def index():
         if (not is_bot) and (not is_hidden_ip(user_ip)):
             log_append({
                 "ip": user_ip,
+                "device_id": device_id,
                 "xff": xff_chain,
                 "remote_addr": request.remote_addr,
                 "geo": geo,
@@ -406,6 +441,7 @@ def test_page():
     user_ip, xff_chain = get_client_ip()
     is_bot = is_request_bot(request.headers.get("User-Agent", ""))
     geo = lookup_city(user_ip)
+    device_id = get_device_id()
 
     if request.method == "GET":
         session["return_after_matrices"] = "/test"
@@ -415,6 +451,7 @@ def test_page():
             print_event(
                 event="matrices-test",
                 user_ip=user_ip,
+                device_id=device_id,
                 geo=geo,
                 xff_chain=xff_chain,
                 remote_addr=request.remote_addr or "",
@@ -578,6 +615,7 @@ def matrices():
     user_ip, xff_chain = get_client_ip()
     is_bot = is_request_bot(request.headers.get("User-Agent", ""))
     geo = lookup_city(user_ip)
+    device_id = get_device_id()
 
     try:
         people_input = request.form.get("people", "").strip()
@@ -592,14 +630,13 @@ def matrices():
 
         if (not is_bot) and (not is_hidden_ip(user_ip)):
             if return_path == "/test":
-                # TEST → print only
                 session["pending_matrices_test_print"] = _build_matrices_payload_lines(
                     people, crews
                 )
             else:
-                # NORMAL → log only
                 log_append({
                     "ip": user_ip,
+                    "device_id": device_id,
                     "xff": xff_chain,
                     "remote_addr": request.remote_addr,
                     "geo": geo,
@@ -617,10 +654,6 @@ def matrices():
 
     return redirect(return_path)
 
-
-# ------------------------------
-# Trainer routes (NOT CUT)
-# ------------------------------
 @app.route("/logout/trainer", methods=["POST"], strict_slashes=False)
 def logout_trainer():
     session.pop("trainer_authed", None)
@@ -655,6 +688,7 @@ def view_once():
     user_ip, xff_chain = get_client_ip()
     is_bot = is_request_bot(request.headers.get("User-Agent", ""))
     geo = lookup_city(user_ip)
+    device_id = get_device_id()
 
     if is_bot or is_hidden_ip(user_ip):
         return ("", 204)
@@ -673,6 +707,7 @@ def view_once():
         print_event(
             event=event_label,
             user_ip=user_ip,
+            device_id=device_id,
             geo=geo,
             xff_chain=xff_chain,
             remote_addr=request.remote_addr or "",
@@ -683,6 +718,23 @@ def view_once():
         session["view_once_seen_tabs"] = seen
 
     return ("", 204)
+
+@app.after_request
+def ensure_device_cookie(resp):
+    # If they already have it, don’t touch it
+    if request.cookies.get(DEVICE_COOKIE_NAME):
+        return resp
+
+    did = get_device_id()
+    resp.set_cookie(
+        DEVICE_COOKIE_NAME,
+        did,
+        max_age=DEVICE_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="Lax",
+        secure=COOKIE_SECURE,
+    )
+    return resp
 
 if __name__ == "__main__":
     app.run()
