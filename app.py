@@ -58,28 +58,50 @@ def build_user_map(entries: list[dict]) -> dict[str, int]:
 
     return {did: i for i, (did, _) in enumerate(ordered, start=1)}
 
-def build_grouped_entries(entries: list[dict]) -> dict[int, list[dict]]:
+def _location_key_from_geo(geo: dict | None) -> str:
+    if not geo:
+        return "Location unknown"
+    city = geo.get("city") or "Unknown city"
+    region = geo.get("region") or "Unknown region"
+    country = geo.get("country") or "Unknown country"
+    return f"{city}, {region}, {country}"
+
+
+def build_grouped_entries(entries: list[dict]) -> dict[int, dict[str, list[dict]]]:
     user_map = build_user_map(entries)
 
-    grouped: dict[int, list[dict]] = {}
+    grouped: dict[int, dict[str, list[dict]]] = {}
+
     for e in entries:
         did = e.get("device_id") or ""
-        user_num = user_map.get(did, 0)
-        grouped.setdefault(user_num, []).append(e)
+        user_num = user_map.get(did, 0)  # 0 only if device_id missing
+        loc_key = _location_key_from_geo(e.get("geo"))
+        grouped.setdefault(user_num, {}).setdefault(loc_key, []).append(e)
 
-    for user_num in grouped:
-        grouped[user_num].sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+    for u in grouped:
+        for loc in grouped[u]:
+            grouped[u][loc].sort(key=lambda e: e.get("timestamp", ""), reverse=True)
 
-    def newest_ts(user_num: int) -> str:
-        return grouped[user_num][0].get("timestamp", "") if grouped[user_num] else ""
+    def loc_newest_ts(u: int, loc: str) -> str:
+        L = grouped[u][loc]
+        return L[0].get("timestamp", "") if L else ""
 
-    ordered_user_nums = sorted(grouped.keys(), key=lambda u: newest_ts(u), reverse=True)
+    ordered_grouped: dict[int, dict[str, list[dict]]]= {}
+    for u in list(grouped.keys()):
+        ordered_locs = sorted(grouped[u].keys(), key=lambda loc: loc_newest_ts(u, loc), reverse=True)
+        ordered_grouped[u] = {loc: grouped[u][loc] for loc in ordered_locs}
 
-    ordered_user_nums = sorted(
-        ordered_user_nums,
-        key=lambda u: (u == 0, ),
-    )
-    return {u: grouped[u] for u in ordered_user_nums}
+    def user_newest_ts(u: int) -> str:
+        locs = ordered_grouped.get(u, {})
+        if not locs:
+            return ""
+        first_loc = next(iter(locs.values()))
+        return first_loc[0].get("timestamp", "") if first_loc else ""
+
+    ordered_users = sorted(ordered_grouped.keys(), key=user_newest_ts, reverse=True)
+    ordered_users = sorted(ordered_users, key=lambda u: (u == 0,))  # push 0 last
+
+    return {u: ordered_grouped[u] for u in ordered_users}
 
 if redis_url:
     app.config["SESSION_TYPE"] = "redis"
@@ -123,6 +145,9 @@ def _next_local_id() -> int:
 def log_append(entry: dict):
     entry = dict(entry)
     ip = entry.get("ip", "")
+
+    if entry.get("event") in {"view", "view-test"}:
+        return
     if is_hidden_ip(ip):
         return
 
@@ -132,7 +157,6 @@ def log_append(entry: dict):
         rdb.rpush(LOG_LIST_KEY, json.dumps(entry))
         rdb.ltrim(LOG_LIST_KEY, -MAX_LOG_ENTRIES, -1)
     else:
-        # local fallback: in-memory logs
         DATA_LOG_FALLBACK.append(entry)
         if len(DATA_LOG_FALLBACK) > MAX_LOG_ENTRIES:
             del DATA_LOG_FALLBACK[:-MAX_LOG_ENTRIES]
@@ -188,9 +212,7 @@ def purge_hidden_ips_from_redis():
                 continue
             kept.append(s)
         except Exception:
-            # if it’s malformed, you can choose to drop it or keep it
             kept.append(s)
-
     pipe = rdb.pipeline()
     pipe.delete(LOG_LIST_KEY)
     if kept:
@@ -198,15 +220,6 @@ def purge_hidden_ips_from_redis():
         pipe.ltrim(LOG_LIST_KEY, -MAX_LOG_ENTRIES, -1)
     pipe.execute()
 purge_hidden_ips_from_redis()
-
-def is_request_bot(user_agent: str) -> bool:
-    ua = (user_agent or "").lower()
-    return (
-            "go-http-client/" in ua
-            or "cron-job.org" in ua
-            or "uptimerobot.com" in ua
-            or ua.strip() == ""
-    )
 
 def lookup_city(ip: str):
     try:
@@ -254,13 +267,10 @@ def _safe_return_path(path: str | None) -> str:
     allowed = {"/", "/test"}
     return path if path in allowed else "/"
 
-# ------------------------------
-# Routes
-# ------------------------------
+
 @app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
     user_ip, xff_chain = get_client_ip()
-    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
     geo = lookup_city(user_ip)
     device_id = get_device_id()
 
@@ -298,7 +308,6 @@ def index():
             len=len,
         )
 
-    # POST "/": DO NOT PRINT. Store ONLY this input in /trainer as event="input".
     pers5 = pers6 = 0
     vehlist_input = ""
     try:
@@ -308,7 +317,7 @@ def index():
         pers6 = int(request.form.get("pers6") or 0)
         vehlist = [int(x.strip()) for x in vehlist_input.split(",") if x.strip()]
 
-        if (not is_bot) and (not is_hidden_ip(user_ip)):
+        if not is_hidden_ip(user_ip):
             log_append({
                 "ip": user_ip,
                 "device_id": device_id,
@@ -408,8 +417,6 @@ def index():
         session["rem_vehs"] = rem_vehs
         session["results"] = [results[0], off]
 
-        # prevent redirect-GET from printing VIEW
-        session["suppress_next_view_print"] = True
         return redirect(url_for("index"))
 
     except Exception as e:
@@ -439,7 +446,6 @@ def index():
 @app.route("/test", methods=["GET", "POST"], strict_slashes=False)
 def test_page():
     user_ip, xff_chain = get_client_ip()
-    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
     geo = lookup_city(user_ip)
     device_id = get_device_id()
 
@@ -447,7 +453,7 @@ def test_page():
         session["return_after_matrices"] = "/test"
 
         pending = session.pop("pending_matrices_test_print", None)
-        if pending and (not is_bot) and (not is_hidden_ip(user_ip)):
+        if pending and (not is_hidden_ip(user_ip)):
             print_event(
                 event="matrices-test",
                 user_ip=user_ip,
@@ -581,7 +587,6 @@ def test_page():
         session["rem_vehs"] = rem_vehs
         session["results"] = [results[0], off]
 
-        session["suppress_next_view_test_print"] = True
         return redirect(url_for("test_page"))
 
     except Exception as e:
@@ -613,7 +618,6 @@ def matrices():
     return_path = _safe_return_path(session.get("return_after_matrices"))
 
     user_ip, xff_chain = get_client_ip()
-    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
     geo = lookup_city(user_ip)
     device_id = get_device_id()
 
@@ -628,7 +632,7 @@ def matrices():
         session["people"] = people
         session["crews"] = crews
 
-        if (not is_bot) and (not is_hidden_ip(user_ip)):
+        if (not is_hidden_ip(user_ip)):
             if return_path == "/test":
                 session["pending_matrices_test_print"] = _build_matrices_payload_lines(
                     people, crews
@@ -680,32 +684,33 @@ def trainer_view():
         session.pop("trainer_authed", None)
         return redirect(url_for("trainer_login"))
 
-    grouped_entries = build_grouped_entries(log_get_all())
+    entries = log_get_all()
+    entries = [e for e in entries if e.get("event") in {"input", "matrices"}]
+
+    grouped_entries = build_grouped_entries(entries)
     return render_template("trainer.html", grouped_entries=grouped_entries)
+
 
 @app.route("/view_once", methods=["POST"], strict_slashes=False)
 def view_once():
     user_ip, xff_chain = get_client_ip()
-    is_bot = is_request_bot(request.headers.get("User-Agent", ""))
     geo = lookup_city(user_ip)
     device_id = get_device_id()
 
-    if is_bot or is_hidden_ip(user_ip):
+    if is_hidden_ip(user_ip):
         return ("", 204)
 
     data = request.get_json(silent=True) or {}
     tab_id = (data.get("tab_id") or "").strip()
-
     if not tab_id or len(tab_id) > 80:
         return ("", 204)
 
     seen = session.get("view_once_seen_tabs", {})
+    last_ip = seen.get(tab_id)
 
-    if not seen.get(tab_id):
-        event_label = "view"
-
+    if last_ip != user_ip:
         print_event(
-            event=event_label,
+            event="view",
             user_ip=user_ip,
             device_id=device_id,
             geo=geo,
@@ -714,14 +719,19 @@ def view_once():
             payload_lines=None,
         )
 
-        seen[tab_id] = True
+        seen[tab_id] = user_ip
+
+        # optional safety cap
+        if len(seen) > 200:
+            items = list(seen.items())[-200:]
+            seen = dict(items)
+
         session["view_once_seen_tabs"] = seen
 
     return ("", 204)
 
 @app.after_request
 def ensure_device_cookie(resp):
-    # If they already have it, don’t touch it
     if request.cookies.get(DEVICE_COOKIE_NAME):
         return resp
 
@@ -733,6 +743,7 @@ def ensure_device_cookie(resp):
         httponly=True,
         samesite="Lax",
         secure=COOKIE_SECURE,
+        path="/",
     )
     return resp
 

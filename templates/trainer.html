@@ -9,9 +9,11 @@
         th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: middle; }
         th { background: #f0f0f0; }
         .input-box { white-space: nowrap; }
-        .ip-block { margin-bottom: 35px; padding: 12px; border: 2px solid #ccc; }
-        .ip-heading { margin: 0 0 4px 0; }
-        .ip-meta { font-size: 0.9em; color: #555; margin-left: 6px; }
+
+        .user-block { margin-bottom: 35px; padding: 12px; border: 2px solid #ccc; }
+        .user-heading { margin: 0 0 10px 0; }
+
+        .loc-heading { margin: 10px 0 6px 0; }
         .label { font-weight: normal; margin-right: 4px; }
     </style>
 </head>
@@ -21,65 +23,62 @@
 <p><a href="{{ url_for('index') }}">Back to main page</a></p>
 
 {% if grouped_entries %}
-{% for user_num, group in grouped_entries.items() %}
-<div class="ip-block">
-
-    {% set g = group[0].geo if group[0].geo is defined else None %}
-    <h2 class="ip-heading">
+{% for user_num, locs in grouped_entries.items() %}
+<div class="user-block">
+    <h2 class="user-heading">
         {% if user_num == 0 %}Unknown Crew Manager{% else %}Crew Manager {{ user_num }}{% endif %}
-        {% if g %}
-        <span class="ip-meta">
-                ({{ g.city or 'Unknown city' }},
-                 {{ g.region or 'Unknown region' }},
-                 {{ g.country or 'Unknown country' }})
-            </span>
-        {% else %}
-        <span class="ip-meta">(Location unknown)</span>
-        {% endif %}
     </h2>
+
+    {% for loc, group in locs.items() %}
+    <h3 class="loc-heading">
+        <span class="label">Location:</span>{{ loc }}
+    </h3>
 
     <table>
         <thead>
         <tr>
             <th>Timestamp (Central Time)</th>
+            <th>Type</th>
             <th>Inputs</th>
         </tr>
         </thead>
         <tbody>
-
         {% for e in group %}
-        {% set ev = e.event if e.event is defined else "" %}
-        {% set inp = e.input if e.input is defined else None %}
+        {% set ev = e.get("event") %}
+        {% set inp = e.get("input") %}
         <tr>
-            <td>{{ e.timestamp }}</td>
-            <td class="input-box">
+            <td>{{ e.get("timestamp") }}</td>
 
-                {% if not inp or not (inp is mapping) %}
-                NULL
+            <td>
+                {% if ev == "matrices" %}
+                Crews
+                {% elif ev == "input" %}
+                Vehicles
                 {% else %}
+                —
+                {% endif %}
+            </td>
 
-                {% if ev == "view" or ev == "view-test" %}
-                <span class="label">Path:</span>{{ inp.get("path", "NULL") }}
-
-                {% elif ev == "matrices" %}
+            <td class="input-box">
+                {% if ev == "matrices" and (inp is mapping) %}
                 <span class="label">People:</span>{{ inp.get("people", "NULL") }}
                 &nbsp;&nbsp;<span class="label">Crews:</span>{{ inp.get("crews", "NULL") }}
 
-                {% else %}
+                {% elif ev == "input" and (inp is mapping) %}
                 <span class="label">Vehicle List:</span>{{ inp.get("vehlist", "NULL") }}
                 &nbsp;&nbsp;<span class="label">5-Person:</span>{{ inp.get("pers5", "NULL") }}
                 &nbsp;&nbsp;<span class="label">6-Person:</span>{{ inp.get("pers6", "NULL") }}
                 &nbsp;&nbsp;<span class="label">Pull Combos:</span>{{ inp.get("pull_combinations", "NULL") }}
-                {% endif %}
 
+                {% else %}
+                NULL
                 {% endif %}
             </td>
         </tr>
         {% endfor %}
-
         </tbody>
     </table>
-
+    {% endfor %}
 </div>
 {% endfor %}
 {% else %}
@@ -95,5 +94,6 @@
         }
     })();
 </script>
+
 </body>
 </html>
