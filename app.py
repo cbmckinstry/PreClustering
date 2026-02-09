@@ -216,22 +216,41 @@ def _build_matrices_payload_lines(people: int, crews: int) -> list[str]:
 def _now_ts() -> str:
     return datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S")
 
+TRUSTED_PROXY_CIDRS = []
+_raw = os.environ.get("TRUSTED_PROXY_CIDRS", "").strip()
+if _raw:
+    TRUSTED_PROXY_CIDRS = [ipaddress.ip_network(x.strip()) for x in _raw.split(",") if x.strip()]
+
 def is_public_ip(ip: str) -> bool:
     try:
         a = ipaddress.ip_address(ip)
-        return not (a.is_private or a.is_loopback or a.is_reserved or a.is_multicast or a.is_link_local)
+        return a.is_global
+    except ValueError:
+        return False
+
+def is_trusted_proxy(ip: str) -> bool:
+    try:
+        a = ipaddress.ip_address(ip)
+        return any(a in net for net in TRUSTED_PROXY_CIDRS)
     except ValueError:
         return False
 
 def get_client_ip():
-    xff = request.headers.get("X-Forwarded-For", "")
-    if xff:
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        for ip in parts:
-            if is_public_ip(ip):
-                return ip, xff
-        return (parts[0] if parts else (request.remote_addr or "")), xff
-    return request.remote_addr or "", ""
+    xff = request.headers.get("X-Forwarded-For", "") or ""
+    parts = [p.strip() for p in xff.split(",") if p.strip()]
+
+    ra = (request.remote_addr or "").strip()
+    if ra:
+        parts.append(ra)
+    for ip in reversed(parts):
+        if is_trusted_proxy(ip):
+            continue
+        if is_public_ip(ip):
+            return ip, xff
+
+    if parts:
+        return parts[0], xff
+    return ra, xff
 
 def purge_hidden_ips_from_redis():
     if not rdb:
