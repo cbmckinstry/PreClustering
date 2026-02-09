@@ -115,7 +115,6 @@ else:
     app.config["SESSION_FILE_DIR"] = str(session_dir)
 Session(app)
 
-
 TRAINER_PASSWORD_VIEW = os.environ.get("TRAINER_PASSWORD_VIEW", "change-me")
 
 def is_trainer_authed() -> bool:
