@@ -300,7 +300,6 @@ def _safe_return_path(path: str | None) -> str:
     allowed = {"/", "/test"}
     return path if path in allowed else "/"
 
-
 @app.route("/", methods=["GET", "POST"], strict_slashes=False)
 def index():
     user_ip, xff_chain = get_client_ip()
