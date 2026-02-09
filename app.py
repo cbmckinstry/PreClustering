@@ -207,6 +207,7 @@ def purge_old_entries():
         global DATA_LOG_FALLBACK
         DATA_LOG_FALLBACK = [e for e in DATA_LOG_FALLBACK if is_recent(e)]
 
+
 def _build_matrices_payload_lines(people: int, crews: int) -> list[str]:
     return [
         f"  People: {people}",
