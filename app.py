@@ -211,7 +211,6 @@ def _build_matrices_payload_lines(people: int, crews: int) -> list[str]:
         f"  People: {people}",
         f"  Crews: {crews}",
     ]
-
 def _now_ts() -> str:
     return datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d  %H:%M:%S")
 
