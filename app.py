@@ -279,7 +279,6 @@ def print_event(event: str, user_ip: str, device_id: str, geo, xff_chain: str, r
 
     if is_hidden_ip(user_ip):
         return
-
     print(f"\n{event.upper()} @ {_now_ts()}", flush=True)
     print(f"  Device: {device_id}", flush=True)
     print(f"  IP: {user_ip}", flush=True)
