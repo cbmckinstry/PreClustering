@@ -16,38 +16,41 @@
         .loc-heading { margin: 10px 0 6px 0; }
         .label { font-weight: normal; margin-right: 4px; }
 
-        /* Hide by default to prevent any flash (including "No entries") */
         html { visibility: hidden; }
     </style>
-
     <script>
         (function () {
             const TAB_KEY = "tab_ok_trainer";
             const LOGIN_URL = "{{ url_for('trainer_login') }}";
 
+            function redirectToLogin() {
+                try { navigator.sendBeacon("/logout/trainer"); } catch (e) {}
+                window.location.replace(LOGIN_URL);
+            }
+
             try {
                 if (!sessionStorage.getItem(TAB_KEY)) {
-                    try { navigator.sendBeacon("/logout/trainer"); } catch (e) {}
-                    window.location.replace(LOGIN_URL);
+                    redirectToLogin();
                     return;
                 }
 
-                // Show only after DOM is ready (prevents "No entries..." flash)
-                window.addEventListener("DOMContentLoaded", function () {
+                // pageshow fires on normal load AND bfcache restore
+                window.addEventListener("pageshow", function (e) {
+                    if (e.persisted) {
+                        // We are seeing a restored snapshot (often the "No entries..." one)
+                        window.location.reload();
+                        return;
+                    }
+                    // Only show after the real navigation is complete
                     document.documentElement.style.visibility = "visible";
                 }, { once: true });
 
-                // Optional: if coming from back/forward cache, force a real reload
-                window.addEventListener("pageshow", function (e) {
-                    if (e.persisted) window.location.reload();
-                });
-
             } catch (e) {
-                try { navigator.sendBeacon("/logout/trainer"); } catch (e2) {}
-                window.location.replace(LOGIN_URL);
+                redirectToLogin();
             }
         })();
     </script>
+
 </head>
 
 <body>
