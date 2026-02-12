@@ -232,6 +232,25 @@ def get_client_ip():
         return (parts[0] if parts else (request.remote_addr or "")), xff
     return request.remote_addr or "", ""
 
+WIPE_ALL_IPS_RAW = os.environ.get("WIPE_ALL_IPS", "").strip().lower()
+WIPE_ALL_IPS = WIPE_ALL_IPS_RAW in {"1", "true", "yes", "y", "on"}
+
+def wipe_all_ips_from_storage():
+    global DATA_LOG_FALLBACK, LOG_COUNTER_FALLBACK
+
+    if rdb:
+        pipe = rdb.pipeline()
+        pipe.delete(LOG_LIST_KEY)
+        pipe.delete(LOG_COUNTER_KEY)
+        pipe.execute()
+    else:
+        DATA_LOG_FALLBACK = []
+        LOG_COUNTER_FALLBACK = 0
+
+if WIPE_ALL_IPS:
+    wipe_all_ips_from_storage()
+
+
 def purge_hidden_ips_from_redis():
     if not rdb:
         return
