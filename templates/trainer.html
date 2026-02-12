@@ -16,6 +16,7 @@
         .loc-heading { margin: 10px 0 6px 0; }
         .label { font-weight: normal; margin-right: 4px; }
 
+        /* Hide by default to prevent any flash (including "No entries") */
         html { visibility: hidden; }
     </style>
 
@@ -31,7 +32,16 @@
                     return;
                 }
 
-                document.documentElement.style.visibility = "visible";
+                // Show only after DOM is ready (prevents "No entries..." flash)
+                window.addEventListener("DOMContentLoaded", function () {
+                    document.documentElement.style.visibility = "visible";
+                }, { once: true });
+
+                // Optional: if coming from back/forward cache, force a real reload
+                window.addEventListener("pageshow", function (e) {
+                    if (e.persisted) window.location.reload();
+                });
+
             } catch (e) {
                 try { navigator.sendBeacon("/logout/trainer"); } catch (e2) {}
                 window.location.replace(LOGIN_URL);
@@ -39,6 +49,7 @@
         })();
     </script>
 </head>
+
 <body>
 
 <h1>Trainer (View Only)</h1>
