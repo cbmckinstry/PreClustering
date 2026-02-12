@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Flask, render_template, request, session, redirect, url_for
+from flask import Flask, render_template, request, session, redirect, url_for, Response
 from flask_session import Session
 from Master import *
 import os
@@ -710,10 +710,10 @@ def matrices():
 
     return redirect(return_path)
 
-@app.route("/logout/trainer", methods=["POST"], strict_slashes=False)
+@app.route("/logout/trainer", methods=["POST", "GET"])
 def logout_trainer():
     session.pop("trainer_authed", None)
-    return ("", 204)
+    return Response("", status=204)
 
 @app.route("/trainer_login", methods=["GET", "POST"], strict_slashes=False)
 def trainer_login():
@@ -722,11 +722,17 @@ def trainer_login():
         pwd = request.form.get("password", "")
         if pwd == TRAINER_PASSWORD_VIEW:
             session["trainer_authed"] = True
-            return render_template(
-                "set_tab_ok.html",
-                tab_key="tab_ok_trainer",
-                next_url=url_for("trainer_view"),
+            resp = redirect(url_for("trainer_view"), code=303)
+            resp.set_cookie(
+                "tab_ok_trainer",
+                "1",
+                max_age=60*60*8,      # 8 hours (pick what you want)
+                httponly=False,       # JS can read if you still want
+                samesite="Lax",
+                secure=COOKIE_SECURE,
+                path="/",
             )
+            return resp
         error = "Incorrect password."
     return render_template("trainer_login.html", error=error)
 
@@ -736,14 +742,15 @@ def trainer_view():
         session.pop("trainer_authed", None)
         return redirect(url_for("trainer_login"))
 
+    if request.cookies.get("tab_ok_trainer") != "1":
+        # treat as not logged in for this tab/browser
+        session.pop("trainer_authed", None)
+        return redirect(url_for("trainer_login"))
+
     purge_old_entries()
-
-    entries = log_get_all()
-    entries = [e for e in entries if e.get("event") in {"input", "matrices"}]
-
+    entries = [e for e in log_get_all() if e.get("event") in {"input", "matrices"}]
     grouped_entries = build_grouped_entries(entries)
     return render_template("trainer.html", grouped_entries=grouped_entries)
-
 
 @app.route("/view_once", methods=["POST"], strict_slashes=False)
 def view_once():
