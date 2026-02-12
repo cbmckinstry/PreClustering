@@ -775,7 +775,6 @@ def view_once():
 
         seen[tab_id] = user_ip
 
-        # optional safety cap
         if len(seen) > 200:
             items = list(seen.items())[-200:]
             seen = dict(items)
