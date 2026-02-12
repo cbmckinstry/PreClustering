@@ -717,33 +717,20 @@ def logout_trainer():
 
 @app.route("/trainer_login", methods=["GET", "POST"], strict_slashes=False)
 def trainer_login():
-    error = None
     if request.method == "POST":
         pwd = request.form.get("password", "")
         if pwd == TRAINER_PASSWORD_VIEW:
             session["trainer_authed"] = True
-            resp = redirect(url_for("trainer_view"), code=303)
-            resp.set_cookie(
-                "tab_ok_trainer",
-                "1",
-                max_age=60*60*8,      # 8 hours (pick what you want)
-                httponly=False,       # JS can read if you still want
-                samesite="Lax",
-                secure=COOKIE_SECURE,
-                path="/",
-            )
-            return resp
-        error = "Incorrect password."
+            return render_template("set_tab_ok.html", tab_key="tab_ok_trainer", next_url=url_for("trainer_view"))
+        return redirect(url_for("trainer_login", err="1"), code=303)
+
+    error = "Incorrect password." if request.args.get("err") == "1" else None
     return render_template("trainer_login.html", error=error)
+
 
 @app.route("/trainer", strict_slashes=False)
 def trainer_view():
     if not is_trainer_authed():
-        session.pop("trainer_authed", None)
-        return redirect(url_for("trainer_login"))
-
-    if request.cookies.get("tab_ok_trainer") != "1":
-        # treat as not logged in for this tab/browser
         session.pop("trainer_authed", None)
         return redirect(url_for("trainer_login"))
 

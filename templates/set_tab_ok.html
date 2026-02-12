@@ -1,38 +1,28 @@
 <!doctype html>
-<html>
+<html lang="en" style="visibility:hidden">
 <head>
     <meta charset="utf-8">
     <title>Signing in…</title>
+    <script>
+        (function () {
+            const tabKey = {{ tab_key | tojson }};
+            const nextUrl = {{ next_url | tojson }};
+
+            try {
+                if (tabKey) sessionStorage.setItem(tabKey, "1");
+            } catch (e) {}
+
+            if (nextUrl) {
+                window.location.replace(nextUrl);
+            } else {
+                // last resort: go to /trainer
+                window.location.replace("/trainer");
+            }
+        })();
+    </script>
+    <noscript>
+        <meta http-equiv="refresh" content="0;url=/trainer">
+    </noscript>
 </head>
-<body>
-<p>Signing in…</p>
-
-<!-- Debug line: if you ever see the wrong URL here, the route passed the wrong next_url -->
-<p style="font-family: monospace;">
-    tab_key={{ tab_key }}<br>
-    next_url={{ next_url }}
-</p>
-
-<script>
-    (function () {
-        var tabKey = "{{ tab_key|e }}";
-        var nextUrl = "{{ next_url|e }}";
-
-        // Set tab-only marker
-        if (tabKey) sessionStorage.setItem(tabKey, "1");
-
-        // Redirect
-        if (nextUrl) {
-            window.location.replace(nextUrl);
-        } else {
-            // If next_url is empty, do something obvious instead of "nothing"
-            alert("ERROR: next_url missing in set_tab_ok.html");
-        }
-    })();
-</script>
-
-<noscript>
-    JavaScript is required. Click: <a href="{{ next_url }}">{{ next_url }}</a>
-</noscript>
-</body>
+<body></body>
 </html>
