@@ -785,11 +785,6 @@ def view_once():
 
 @app.after_request
 def after_request(resp):
-    if request.path.startswith("/trainer"):
-        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        resp.headers["Pragma"] = "no-cache"
-        resp.headers["Expires"] = "0"
-
     if not request.cookies.get(DEVICE_COOKIE_NAME):
         did = get_device_id()
         resp.set_cookie(
