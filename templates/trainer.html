@@ -34,14 +34,11 @@
                     return;
                 }
 
-                // pageshow fires on normal load AND bfcache restore
                 window.addEventListener("pageshow", function (e) {
                     if (e.persisted) {
-                        // We are seeing a restored snapshot (often the "No entries..." one)
                         window.location.reload();
                         return;
                     }
-                    // Only show after the real navigation is complete
                     document.documentElement.style.visibility = "visible";
                 }, { once: true });
 
