@@ -15,7 +15,29 @@
 
         .loc-heading { margin: 10px 0 6px 0; }
         .label { font-weight: normal; margin-right: 4px; }
+
+        html { visibility: hidden; }
     </style>
+
+    <script>
+        (function () {
+            const TAB_KEY = "tab_ok_trainer";
+            const LOGIN_URL = "{{ url_for('trainer_login') }}";
+
+            try {
+                if (!sessionStorage.getItem(TAB_KEY)) {
+                    try { navigator.sendBeacon("/logout/trainer"); } catch (e) {}
+                    window.location.replace(LOGIN_URL);
+                    return;
+                }
+
+                document.documentElement.style.visibility = "visible";
+            } catch (e) {
+                try { navigator.sendBeacon("/logout/trainer"); } catch (e2) {}
+                window.location.replace(LOGIN_URL);
+            }
+        })();
+    </script>
 </head>
 <body>
 
@@ -84,16 +106,6 @@
 {% else %}
 <p>No entries logged yet.</p>
 {% endif %}
-
-<script>
-    (function () {
-        var key = "tab_ok_trainer";
-        if (!sessionStorage.getItem(key)) {
-            try { navigator.sendBeacon("/logout/trainer"); } catch (e) {}
-            window.location.replace("{{ url_for('trainer_login') }}");
-        }
-    })();
-</script>
 
 </body>
 </html>
