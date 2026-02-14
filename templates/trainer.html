@@ -101,8 +101,8 @@
                 <span class="label">Vehicle List:</span>{{ inp.get("vehlist", "NULL") }}
                 &nbsp;&nbsp;<span class="label">5-Person:</span>{{ inp.get("pers5", "NULL") }}
                 &nbsp;&nbsp;<span class="label">6-Person:</span>{{ inp.get("pers6", "NULL") }}
-                &nbsp;&nbsp;<span class="label">Pull Combos:</span>{{ inp.get("pull_combinations", "NULL") }}
-
+                &nbsp;&nbsp;<span class="label">Only Combos:</span>
+                {{ 'Y' if inp.get("pull_combinations") == 1 else 'N' if inp.get("pull_combinations") == 0 else 'NULL' }}
                 {% else %}
                 NULL
                 {% endif %}
