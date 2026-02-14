@@ -174,8 +174,8 @@ if __name__ == '__main__':
                 sets = multisets(size, pr)
 
                 timestamp = datetime.now().strftime("%M%S")
-                filepath = Path.home() / "Desktop" / "Trials" / f"trial{pr}s_{ver}" / f"{size}_{pr}{ver}_{timestamp}.csv"
-
+                BASE_DIR = Path(__file__).resolve().parent
+                filepath = BASE_DIR / "Trials" / f"trial{pr}s_{ver}" / f"{size}_{pr}{ver}_{timestamp}.csv"
                 skip_sums = {1, 2, 3, 4, 7, 8, 9, 13, 14, 19}
 
                 for vehicles in sets:
