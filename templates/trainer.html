@@ -5,19 +5,24 @@
     <title>Trainer View</title>
     <style>
         body { font-family: sans-serif; }
+
         table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-        th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: middle; }
+        th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
         th { background: #f0f0f0; }
-        .input-box { white-space: nowrap; }
 
         .user-block { margin-bottom: 35px; padding: 12px; border: 2px solid #ccc; }
         .user-heading { margin: 0 0 10px 0; }
-
         .loc-heading { margin: 10px 0 6px 0; }
+
         .label { font-weight: normal; margin-right: 4px; }
+
+        /* prevent the whole cell from forcing one long line */
+        .veh-cell { white-space: normal; }
+        .nowrap { white-space: nowrap; }
 
         html { visibility: hidden; }
     </style>
+
     <script>
         (function () {
             const TAB_KEY = "tab_ok_trainer";
@@ -47,10 +52,20 @@
             }
         })();
     </script>
-
 </head>
 
 <body>
+
+{% macro render_vehlist(v) -%}
+{%- if v is sequence and (v is not string) -%}
+{%- set chunks = v|batch(30, none) -%}
+{%- for chunk in chunks -%}
+<div class="nowrap">{%- if loop.first -%}[{%- endif -%}{{ chunk|reject('equalto', none)|list|join(', ') }}{%- if not loop.last -%},{%- endif -%}{%- if loop.last -%}]{%- endif -%}</div>
+{%- endfor -%}
+{%- else -%}
+{{ v }}
+{%- endif -%}
+{%- endmacro %}
 
 <h1>Trainer (View Only)</h1>
 <p><a href="{{ url_for('index') }}">Back to main page</a></p>
@@ -72,7 +87,9 @@
         <tr>
             <th>Timestamp (Central Time)</th>
             <th>Type</th>
-            <th>Inputs</th>
+            <th>Structure</th>
+            <th>Only Combos</th>
+            <th>Vehicles</th>
         </tr>
         </thead>
         <tbody>
@@ -80,9 +97,9 @@
         {% set ev = e.get("event") %}
         {% set inp = e.get("input") %}
         <tr>
-            <td>{{ e.get("timestamp") }}</td>
+            <td class="nowrap">{{ e.get("timestamp", "NULL") }}</td>
 
-            <td>
+            <td class="nowrap">
                 {% if ev == "matrices" %}
                 Crews
                 {% elif ev == "input" %}
@@ -92,25 +109,41 @@
                 {% endif %}
             </td>
 
-            <td class="input-box">
-                {% if ev == "matrices" and (inp is mapping) %}
+            <td class="nowrap">
+                {% if ev == "input" and (inp is mapping) %}
+                <span class="label">5-person:</span>{{ inp.get("pers5", "NULL") }}
+                &nbsp;&nbsp;<span class="label">6-person:</span>{{ inp.get("pers6", "NULL") }}
+
+                {% elif ev == "matrices" and (inp is mapping) %}
                 <span class="label">People:</span>{{ inp.get("people", "NULL") }}
                 &nbsp;&nbsp;<span class="label">Crews:</span>{{ inp.get("crews", "NULL") }}
 
-                {% elif ev == "input" and (inp is mapping) %}
-                <span class="label">Vehicle List:</span>{{ inp.get("vehlist", "NULL") }}
-                &nbsp;&nbsp;<span class="label">5-Person:</span>{{ inp.get("pers5", "NULL") }}
-                &nbsp;&nbsp;<span class="label">6-Person:</span>{{ inp.get("pers6", "NULL") }}
-                &nbsp;&nbsp;<span class="label">Only Combos:</span>
-                {{ 'Y' if inp.get("pull_combinations") == 1 else 'N' if inp.get("pull_combinations") == 0 else 'NULL' }}
                 {% else %}
-                NULL
+                —
+                {% endif %}
+            </td>
+
+            <td class="nowrap">
+                {% if ev == "input" and (inp is mapping) %}
+                {{ 'Yes' if inp.get("pull_combinations") == 1 else 'No' if inp.get("pull_combinations") == 0 else 'NULL' }}
+                {% else %}
+                —
+                {% endif %}
+            </td>
+
+            {# Vehicles column: ONLY show when event is "input" (and wrap every 15 entries as new line) #}
+            <td class="veh-cell">
+                {% if ev == "input" and (inp is mapping) %}
+                {{ render_vehlist(inp.get("vehlist", "NULL")) }}
+                {% else %}
+                —
                 {% endif %}
             </td>
         </tr>
         {% endfor %}
         </tbody>
     </table>
+
     {% endfor %}
 </div>
 {% endfor %}
