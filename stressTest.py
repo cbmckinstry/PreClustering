@@ -5,8 +5,13 @@ import subprocess
 import time
 import os
 import socket
+import re
 from pathlib import Path
 
+
+# ==========================================
+# KEEP NORMAL OUTPUT, ONLY FILTER PY4J SPAM
+# ==========================================
 
 class _DropPy4JSpam(logging.Filter):
     DROP_SUBSTRINGS = (
@@ -38,6 +43,10 @@ def _install_logging_filters():
 _install_logging_filters()
 
 
+# ==========================================
+# PROJECT CONFIG
+# ==========================================
+
 PROJECT_DIR = Path(__file__).resolve().parent
 JAVA_CLASS = "Combine"
 PY4J_JAR = PROJECT_DIR / "py4j0.10.9.9.jar"
@@ -48,6 +57,10 @@ PY4J_PORT = 25333
 CP_SEP = ";" if os.name == "nt" else ":"
 os.chdir(PROJECT_DIR)
 
+
+# ==========================================
+# JAVA CONTROL
+# ==========================================
 
 def compile_java():
     java_file = PROJECT_DIR / f"{JAVA_CLASS}.java"
@@ -119,20 +132,46 @@ def shutdown_gateway_if_present():
         pass
 
 
+# ==========================================
+# TRIAL FOLDER NAMING (GLOBAL A COUNTER)
+# ==========================================
+
+_TRIAL_ANY_RE = re.compile(r"^Trial_.*_(\d+)$")
+
+
+def _next_global_A(base_dir: Path) -> int:
+    """
+    Scan base_dir for folders like Trial_*_<A> and return next A.
+    """
+    max_a = -1
+    for p in base_dir.iterdir():
+        if not p.is_dir():
+            continue
+        name = p.name
+        if not name.startswith("Trial_"):
+            continue
+        m = _TRIAL_ANY_RE.match(name)
+        if m:
+            try:
+                a = int(m.group(1))
+                max_a = max(max_a, a)
+            except ValueError:
+                pass
+    return max_a + 1
+
+
 def next_trial_run_dir(base_dir: Path, lower: int, upper: int) -> Path:
+    """
+    Returns a unique run folder: Trial_{lower}-{upper}_{A}
+    where A is globally unique across all Trial_* folders.
+    """
+    a = _next_global_A(base_dir)
+    return base_dir / f"Trial_{lower}-{upper}_{a}"
 
-    base_name = f"Trial_{lower}-{upper}"
-    base_candidate = base_dir / base_name
 
-    if not base_candidate.exists():
-        return base_candidate
-
-    x = 1
-    while True:
-        candidate = base_dir / f"{base_name}_{x}"
-        if not candidate.exists():
-            return candidate
-        x += 1
+# ==========================================
+# MAIN
+# ==========================================
 
 java_proc = None
 try:
@@ -140,6 +179,7 @@ try:
     java_proc = start_java()
     wait_for_port(PY4J_HOST, PY4J_PORT, timeout_s=20.0)
 
+    # Now that Java is up, importing Master/Extension won't fail
     from Master import *  # noqa
 
     import csv
@@ -147,6 +187,15 @@ try:
     from datetime import datetime
     from zoneinfo import ZoneInfo
     from collections import Counter
+
+    def _ts_chicago() -> str:
+        return datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
+
+    def log_new_block(run_dir: Path, lower: int, upper: int):
+        print(f"[{_ts_chicago()}] ****** [BLOCK] " + str(lower)+"-"+str(upper)+ " ******")
+
+    def log_new_size(run_dir: Path, size: int):
+        print(f"[{_ts_chicago()}] [SIZE] {size}")
 
     def main(vehlist, pers5, pers6):
         veh2 = vehlist.copy()
@@ -254,8 +303,6 @@ try:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         file_exists = path.exists()
-        if not file_exists:
-            ts = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
 
         combos_str = "" if not combos else "|".join(",".join(map(str, c)) for c in combos)
 
@@ -306,74 +353,86 @@ try:
 
 
     if __name__ == "__main__":
-        lower = 9
-        upper = 14
-        vers = [1,0]
+
+        start_lower = 5
+        end_upper = 10
+        block_size = 3  #inclusive on each end
+
+        vers = [1, 0]
         priorities = [6, 5]
         print_pr = ["Most", "All"]
 
         BASE_DIR = Path(__file__).resolve().parent
-        RUN_DIR = next_trial_run_dir(BASE_DIR, lower, upper)
-        RUN_DIR.mkdir(parents=True, exist_ok=False)
 
-        ts0 = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
-        print(f"[{ts0}] [*] Using run folder: {RUN_DIR}")
+        lower = start_lower
+        while lower <= end_upper:
+            upper = min(lower + block_size - 1, end_upper)
 
-        for size in range(lower, upper + 1):
-            for pr in priorities:
-                for ver in vers:
-                    vars = [0, 5, 4, 3, 2, 1]
-                    sets = multisets(size, pr)
+            RUN_DIR = next_trial_run_dir(BASE_DIR, lower, upper)
+            RUN_DIR.mkdir(parents=True, exist_ok=False)
 
-                    filepath = RUN_DIR / f"{size}" / f"{pr}s_{print_pr[ver]}.csv"
+            # LOG: new block introduced
+            log_new_block(RUN_DIR, lower, upper)
 
-                    skip_sums = {1, 2, 3, 4, 7, 8, 9, 13, 14, 19}
+            for size in range(lower, upper + 1):
+                # LOG: new size introduced
+                log_new_size(RUN_DIR, size)
 
-                    for vehicles in sets:
-                        s = sum(vehicles)
-                        if s in skip_sums and ver != 1:
-                            continue
+                for pr in priorities:
+                    for ver in vers:
+                        vars = [0, 5, 4, 3, 2, 1]
+                        sets = multisets(size, pr)
 
-                        if pr == 6:
-                            if ver == 0:
-                                pers5 = vars[s % 6]
-                                remainder = s - 5 * pers5
-                                pers6 = remainder // 6
+                        filepath = RUN_DIR / f"{size}" / f"{pr}s_{print_pr[ver]}.csv"
+
+                        skip_sums = {1, 2, 3, 4, 7, 8, 9, 13, 14, 19}
+
+                        for vehicles in sets:
+                            s = sum(vehicles)
+                            if s in skip_sums and ver != 1:
+                                continue
+
+                            if pr == 6:
+                                if ver == 0:
+                                    pers5 = vars[s % 6]
+                                    remainder = s - 5 * pers5
+                                    pers6 = remainder // 6
+                                else:
+                                    pers6 = s // 6
+                                    pers5 = 0
+
+                            elif pr == 5:
+                                if ver == 0:
+                                    pers6 = s % 5
+                                    remainder = s - 6 * pers6
+                                    pers5 = remainder // 5
+                                else:
+                                    pers5 = s // 5
+                                    pers6 = 0
                             else:
-                                pers6 = s // 6
-                                pers5 = 0
+                                continue
 
-                        elif pr == 5:
-                            if ver == 0:
-                                pers6 = s % 5
-                                remainder = s - 6 * pers6
-                                pers5 = remainder // 5
-                            else:
-                                pers5 = s // 5
-                                pers6 = 0
-                        else:
-                            continue
+                            combos, init, off = main(vehicles, pers5, pers6)
 
-                        combos, init, off = main(vehicles, pers5, pers6)
+                            if combos:
+                                combos = [sorted(inner) for inner in combos]
 
-                        if combos:
-                            combos = [sorted(inner) for inner in combos]
+                            used_space = sum(sum(c) for c in combos) if combos else 0
+                            validCheck = (
+                                    combos is not None and init is not None and off is not None
+                                    and len(init) == len(combos)
+                                    and multiset_subset(combos, vehicles)
+                                    and s >= used_space >= 5 * off[0] + 6 * off[1]
+                                    and sum(i[0] for i in init) == off[0]
+                                    and sum(i[1] for i in init) == off[1]
+                            )
 
-                        used_space = sum(sum(c) for c in combos) if combos else 0
-                        validCheck = (
-                                combos is not None and init is not None and off is not None
-                                and len(init) == len(combos)
-                                and multiset_subset(combos, vehicles)
-                                and s >= used_space >= 5 * off[0] + 6 * off[1]
-                                and sum(i[0] for i in init) == off[0]
-                                and sum(i[1] for i in init) == off[1]
-                        )
+                            flags = determineflags(combos, init)
+                            writetocsv(filepath, vehicles, pers5, pers6, combos, validCheck, flags)
 
-                        flags = determineflags(combos, init)
-                        writetocsv(filepath, vehicles, pers5, pers6, combos, validCheck, flags)
+                        print(f"[{_ts_chicago()}] Wrote results for {size}-{pr}s-{print_pr[ver]} to: {filepath}")
 
-                    ts = datetime.now(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M:%S %Z")
-                    print(f"[{ts}] Wrote results for {size}-{pr}s-{print_pr[ver]} to: {filepath}")
+            lower += block_size
 
         print("All done!")
 
